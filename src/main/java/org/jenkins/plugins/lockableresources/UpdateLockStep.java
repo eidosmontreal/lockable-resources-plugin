@@ -8,6 +8,7 @@ import hudson.model.TaskListener;
 import hudson.util.FormValidation;
 import java.io.Serializable;
 import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang.StringUtils;
 import org.jenkinsci.plugins.workflow.steps.Step;
@@ -36,6 +37,11 @@ public class UpdateLockStep extends Step implements Serializable {
 
   @CheckForNull
   public String setNote = null;
+
+  @CheckForNull
+  public List<LockableResourceProperty> setProperties = null;
+
+  public boolean mergeProperties = true;
 
   public boolean createResource = false;
   public boolean deleteResource = false;
@@ -73,6 +79,16 @@ public class UpdateLockStep extends Step implements Serializable {
   @DataBoundSetter
   public void setSetNote(String setNote) {
     this.setNote = setNote;
+  }
+
+  @DataBoundSetter
+  public void setSetProperties(List<LockableResourceProperty> setProperties) {
+    this.setProperties = setProperties;
+  }
+
+  @DataBoundSetter
+  public void setMergeProperties(boolean mergeProperties) {
+    this.mergeProperties = mergeProperties;
   }
 
   @DataBoundConstructor

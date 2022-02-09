@@ -3,6 +3,7 @@ package org.jenkins.plugins.lockableresources;
 import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -55,6 +56,28 @@ public class UpdateLockStepExecution extends AbstractStepExecutionImpl implement
 
       if (this.step.setNote != null) {
         resource.setNote(this.step.setNote);
+      }
+
+      if (this.step.setProperties != null) {
+
+        if (this.step.mergeProperties) {
+          LinkedHashMap<String, String> mergePropertyMap = new LinkedHashMap<>();
+
+          resource.getProperties().stream()
+            .forEach(p -> mergePropertyMap.put(p.getName(), p.getValue()));
+
+          this.step.setProperties.stream()
+            .forEach(p -> mergePropertyMap.put(p.getName(), p.getValue()));
+
+          List<LockableResourceProperty> mergedProperties = mergePropertyMap.entrySet().stream()
+            .map(e -> new LockableResourceProperty(e.getKey(), e.getValue()))
+            .collect(Collectors.toList());
+
+          resource.setProperties(mergedProperties);
+        }
+        else {
+          resource.setProperties(this.step.setProperties);
+        }
       }
 
       LockableResourcesManager.get().save();

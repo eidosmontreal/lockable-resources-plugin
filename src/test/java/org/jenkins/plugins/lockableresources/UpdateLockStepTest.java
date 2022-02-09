@@ -1,5 +1,9 @@
 package org.jenkins.plugins.lockableresources;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
@@ -84,6 +88,63 @@ public class UpdateLockStepTest extends LockStepTestBase {
     Assert.assertEquals(
       "hello world",
       LockableResourcesManager.get().fromName("resource1").getNote());
+  }
+
+  @Test
+  //@Issue("JENKINS-XXXXX")
+  public void updateLockSetProperties() throws Exception {
+    LockableResourcesManager.get().createResource("resource1");
+
+    List<LockableResourceProperty> existingProperties = new ArrayList<>();
+    existingProperties.add(new LockableResourceProperty("keyA", "originalA"));
+    existingProperties.add(new LockableResourceProperty("keyB", "originalB"));
+    LockableResourcesManager.get().fromName("resource1").setProperties(existingProperties);
+
+    WorkflowJob p = j.jenkins.createProject(WorkflowJob.class, "p");
+    p.setDefinition(
+      new CpsFlowDefinition(
+        "updateLock(resource:'resource1', setProperties:[[name:'keyA', value:'newA'],[name:'keyC',value:'newC']], mergeProperties:false)\n",
+        true));
+    WorkflowRun b1 = p.scheduleBuild2(0).waitForStart();
+    j.waitForCompletion(b1);
+
+    Map<String, String> properties = LockableResourcesManager.get().fromName("resource1").getProperties().stream()
+      .collect(Collectors.toMap(e -> e.getName(), e -> e.getValue()));
+
+    // properties should have been updated
+    Assert.assertEquals(2, properties.size());
+    Assert.assertEquals("newA", properties.get("keyA"));
+    Assert.assertNull(properties.get("keyB"));
+    Assert.assertEquals("newC", properties.get("keyC"));
+  }
+
+
+  @Test
+  //@Issue("JENKINS-XXXXX")
+  public void updateLockMergeProperties() throws Exception {
+    LockableResourcesManager.get().createResource("resource1");
+
+    List<LockableResourceProperty> existingProperties = new ArrayList<>();
+    existingProperties.add(new LockableResourceProperty("keyA", "originalA"));
+    existingProperties.add(new LockableResourceProperty("keyB", "originalB"));
+    LockableResourcesManager.get().fromName("resource1").setProperties(existingProperties);
+
+    WorkflowJob p = j.jenkins.createProject(WorkflowJob.class, "p");
+    p.setDefinition(
+      new CpsFlowDefinition(
+        "updateLock(resource:'resource1', setProperties:[[name:'keyA', value:'newA'],[name:'keyC',value:'newC']])\n",
+        true));
+    WorkflowRun b1 = p.scheduleBuild2(0).waitForStart();
+    j.waitForCompletion(b1);
+
+    Map<String, String> properties = LockableResourcesManager.get().fromName("resource1").getProperties().stream()
+      .collect(Collectors.toMap(e -> e.getName(), e -> e.getValue()));
+
+    // properties should have been updated
+    Assert.assertEquals(3, properties.size());
+    Assert.assertEquals("newA", properties.get("keyA"));
+    Assert.assertEquals("originalB", properties.get("keyB"));
+    Assert.assertEquals("newC", properties.get("keyC"));
   }
 
   @Test
