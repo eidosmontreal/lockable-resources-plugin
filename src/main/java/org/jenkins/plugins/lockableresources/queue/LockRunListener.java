@@ -50,7 +50,9 @@ public class LockRunListener extends RunListener<Run<?, ?>> {
         LockableResourcesStruct resources = Utils.requiredResources(proj);
 
         if (resources != null) {
-          if (resources.requiredNumber != null || !resources.label.isEmpty() || resources.getResourceMatchScript() != null) {
+          if (resources.requiredNumber != null
+            || resources.hasLabelFilter()
+            || resources.getResourceMatchScript() != null) {
             required.addAll(LockableResourcesManager.get().
               getResourcesFromProject(proj.getFullName()));
           } else {

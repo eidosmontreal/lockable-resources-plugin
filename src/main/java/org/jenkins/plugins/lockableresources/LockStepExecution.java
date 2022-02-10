@@ -15,6 +15,7 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
+import org.apache.commons.lang.StringUtils;
 import org.jenkins.plugins.lockableresources.queue.LockableResourcesStruct;
 import org.jenkinsci.plugins.workflow.graph.FlowNode;
 import org.jenkinsci.plugins.workflow.steps.AbstractStepExecutionImpl;
@@ -55,8 +56,20 @@ public class LockStepExecution extends AbstractStepExecutionImpl implements Seri
         }
         resources.add(resource.resource);
       }
+
+      String allOfLabels = resource.allOfLabels;
+      // merge the label with the allOfLabels filter
+      if (StringUtils.isNotBlank(resource.label)) {
+        if (StringUtils.isBlank(allOfLabels)) {
+          allOfLabels = resource.label;
+        }
+        else {
+          allOfLabels = resource.label + " " + allOfLabels;
+        }
+      }
+
       resourceHolderList.add(
-        new LockableResourcesStruct(resources, resource.label, resource.quantity));
+        new LockableResourcesStruct(resources, resource.anyOfLabels, allOfLabels, resource.noneOfLabels, resource.quantity));
     }
 
     // determine if there are enough resources available to proceed

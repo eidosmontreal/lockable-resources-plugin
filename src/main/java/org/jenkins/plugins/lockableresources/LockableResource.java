@@ -184,7 +184,7 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
     this.properties = (properties == null ? new ArrayList<>() : properties);
   }
 
-  public boolean isValidLabel(String candidate, Map<String, Object> params) {
+  public boolean isValidLabel(String candidate) {
     return labelsContain(candidate);
   }
 

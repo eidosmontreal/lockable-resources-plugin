@@ -101,6 +101,14 @@ lock(resource: 'some_resource', skipIfLocked: true) {
 }
 ```
 
+*Lock a resource based on a combination of labels*
+
+```groovy
+lock(anyOfLabels: 'cat dog', allOfLabels: 'friendly cute', noneOfLabels: 'dangerous dirty') {
+  echo "got a cat or a dog that's friendly and cute, and neither dangerous nor dirty"
+}
+```
+
 #### Update Examples
 
 *Set the note on a lock*
