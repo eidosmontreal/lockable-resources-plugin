@@ -15,6 +15,11 @@ public class LockableResourceProperty extends AbstractDescribableImpl<LockableRe
   private String name;
   private String value;
 
+  public LockableResourceProperty(String name, String value) {
+    this.name = name;
+    this.value = value;
+  }
+
   @DataBoundConstructor
   public LockableResourceProperty() {
   }

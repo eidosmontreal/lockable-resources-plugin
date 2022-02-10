@@ -128,6 +128,13 @@ brokenPrinters.each { p ->
 }
 ```
 
+*Setting properties on a lock dynamically*
+
+```groovy
+updateLock(resource: 'printer', setProperties:[[name: 'IP', value:"1.2.3.4"]])
+```
+
+
 #### Finding Examples
 
 *List all locks currently defined*
