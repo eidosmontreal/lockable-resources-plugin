@@ -23,4 +23,13 @@
   <f:entry title="${%Reserved by}" field="reservedBy">
     <f:textbox/>
   </f:entry>
+  <f:entry title="${%Properties}">
+    <f:repeatableProperty field="properties" header="" minimum="0" add="${%Add Property}">
+      <f:block>
+        <div align="right">
+          <f:repeatableDeleteButton value="${%Delete Property}" />
+        </div>
+      </f:block>
+    </f:repeatableProperty>
+  </f:entry>
 </j:jelly>
