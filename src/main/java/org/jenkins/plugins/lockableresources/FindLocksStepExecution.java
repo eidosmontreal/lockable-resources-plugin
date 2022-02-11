@@ -47,6 +47,10 @@ public class FindLocksStepExecution extends AbstractStepExecutionImpl implements
     lockAsMap.put("queuedItemId", lockableResource.getQueueItemId());
     lockAsMap.put("lockCause", lockableResource.getLockCause());
     lockAsMap.put("reservedByEmail", lockableResource.getReservedByEmail());
+
+    Map<String, String> properties = new HashMap<>();
+    lockableResource.getProperties().stream().forEach(e -> properties.put(e.getName(), e.getValue()));
+    lockAsMap.put("properties", properties);
     return lockAsMap;
   }
 }
