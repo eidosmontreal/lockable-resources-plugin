@@ -14,18 +14,22 @@ import hudson.Extension;
 import hudson.Util;
 import hudson.model.AbstractProject;
 import hudson.model.AutoCompletionCandidates;
+import hudson.model.Item;
 import hudson.model.Job;
 import hudson.model.JobProperty;
 import hudson.model.JobPropertyDescriptor;
 import hudson.util.FormValidation;
 import java.util.ArrayList;
 import java.util.List;
+import jenkins.model.Jenkins;
 import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.scriptsecurity.sandbox.groovy.SecureGroovyScript;
 import org.jenkinsci.plugins.scriptsecurity.scripts.ApprovalContext;
+import org.kohsuke.stapler.AncestorInPath;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.QueryParameter;
 import org.kohsuke.stapler.StaplerRequest;
+import org.kohsuke.stapler.interceptor.RequirePOST;
 
 public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
 
@@ -74,6 +78,7 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
    * @deprecated groovy script was added (since 2.0)
    */
   @Deprecated
+  @ExcludeFromJacocoGeneratedReport
   public RequiredResourcesProperty(String resourceNames,
     String resourceNamesVar, String resourceNumber,
     String labelName) {
@@ -132,7 +137,7 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
     @NonNull
     @Override
     public String getDisplayName() {
-      return "Required Lockable Resources";
+      return Messages.RequiredResourcesProperty_displayName();
     }
 
     @Override
@@ -148,17 +153,21 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
       return null;
     }
 
+    @RequirePOST
     public FormValidation doCheckResourceNames(@QueryParameter String value,
       @QueryParameter String labelName,
-      @QueryParameter boolean script) {
+      @QueryParameter boolean script,
+      @AncestorInPath Item item) {
+      // check permission, security first
+      checkPermission(item);
+
       String labelVal = Util.fixEmptyAndTrim(labelName);
       String names = Util.fixEmptyAndTrim(value);
 
       if (names == null) {
         return FormValidation.ok();
       } else if (labelVal != null || script) {
-        return FormValidation.error(
-          "Only label, groovy expression, or resources can be defined, not more than one.");
+        return FormValidation.error(Messages.error_labelAndNameOrGroovySpecified());
       } else {
         List<String> wrongNames = new ArrayList<>();
         for (String name : names.split("\\s+")) {
@@ -177,16 +186,20 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
           return FormValidation.ok();
         } else {
           return FormValidation
-            .error("The following resources do not exist: "
-              + wrongNames);
+            .error(Messages.error_resourceDoesNotExist(wrongNames));
         }
       }
     }
 
+    @RequirePOST
     public FormValidation doCheckLabelName(
       @QueryParameter String value,
       @QueryParameter String resourceNames,
-      @QueryParameter boolean script) {
+      @QueryParameter boolean script,
+      @AncestorInPath Item item) {
+      // check permission, security first
+      checkPermission(item);
+
       String label = Util.fixEmptyAndTrim(value);
       String names = Util.fixEmptyAndTrim(resourceNames);
 
@@ -194,22 +207,25 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
         return FormValidation.ok();
       } else if (names != null || script) {
         return FormValidation.error(
-          "Only label, groovy expression, or resources can be defined, not more than one.");
+          Messages.error_labelAndNameOrGroovySpecified());
       } else {
         if (LockableResourcesManager.get().isValidLabel(label)) {
           return FormValidation.ok();
         } else {
           return FormValidation.error(
-            "The label does not exist: " + label);
+            Messages.error_labelDoesNotExist(label));
         }
       }
     }
 
+    @RequirePOST
     public FormValidation doCheckResourceNumber(@QueryParameter String value,
       @QueryParameter String resourceNames,
       @QueryParameter String labelName,
-      @QueryParameter String resourceMatchScript)
-    {
+      @QueryParameter String resourceMatchScript,
+      @AncestorInPath Item item) {
+      // check permission, security first
+      checkPermission(item);
 
       String number = Util.fixEmptyAndTrim(value);
       String names = Util.fixEmptyAndTrim(resourceNames);
@@ -225,7 +241,7 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
         numAsInt = Integer.parseInt(number);
       } catch(NumberFormatException e)  {
         return FormValidation.error(
-          "Could not parse the given value as integer.");
+          Messages.error_couldNotParseToint());
       }
       int numResources = 0;
       if (names != null) {
@@ -236,15 +252,20 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
 
       if (numResources < numAsInt) {
         return FormValidation.error(String.format(
-          "Given amount %d is greater than amount of resources: %d.",
+          Messages.error_givenAmountIsGreaterThatResurcesAmount(),
           numAsInt,
           numResources));
       }
       return FormValidation.ok();
     }
 
+    @RequirePOST
     public AutoCompletionCandidates doAutoCompleteLabelName(
-      @QueryParameter String value) {
+      @QueryParameter String value,
+      @AncestorInPath Item item) {
+      // check permission, security first
+      checkPermission(item);
+
       AutoCompletionCandidates c = new AutoCompletionCandidates();
 
       value = Util.fixEmptyAndTrim(value);
@@ -256,8 +277,13 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
       return c;
     }
 
+    @RequirePOST
     public static AutoCompletionCandidates doAutoCompleteResourceNames(
-      @QueryParameter String value) {
+      @QueryParameter String value,
+      @AncestorInPath Item item) {
+      // check permission, security first
+      checkPermission(item);
+
       AutoCompletionCandidates c = new AutoCompletionCandidates();
 
       value = Util.fixEmptyAndTrim(value);
@@ -271,6 +297,14 @@ public class RequiredResourcesProperty extends JobProperty<Job<?, ?>> {
       }
 
       return c;
+    }
+
+    private static void checkPermission(Item item) {
+      if (item != null) {
+        item.checkPermission(Item.CONFIGURE);
+      } else {
+        Jenkins.get().checkPermission(Jenkins.ADMINISTER);
+      }
     }
   }
 }

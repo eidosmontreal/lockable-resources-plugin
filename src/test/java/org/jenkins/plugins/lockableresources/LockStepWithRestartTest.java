@@ -3,6 +3,7 @@ package org.jenkins.plugins.lockableresources;
 import hudson.model.FreeStyleBuild;
 import hudson.model.FreeStyleProject;
 import java.util.Collections;
+import java.util.logging.Logger;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
 import org.jenkinsci.plugins.workflow.job.WorkflowJob;
 import org.jenkinsci.plugins.workflow.job.WorkflowRun;
@@ -12,6 +13,8 @@ import org.junit.Test;
 import org.jvnet.hudson.test.JenkinsSessionRule;
 
 public class LockStepWithRestartTest extends LockStepTestBase {
+
+  private static final Logger LOGGER = Logger.getLogger(LockStepTestBase.class.getName());
 
   @Rule public JenkinsSessionRule sessions = new JenkinsSessionRule();
 
@@ -99,12 +102,10 @@ public class LockStepWithRestartTest extends LockStepTestBase {
         isPaused(b1, 1, 0);
 
         FreeStyleBuild fb1;
-        System.out.print("Waiting for freestyle #1 to start building");
+        LOGGER.info("Waiting for freestyle #1 to start building");
         while ((fb1 = f.getBuildByNumber(1)) == null) {
           Thread.sleep(250);
-          System.out.print('.');
         }
-        System.out.println();
 
         j.waitForMessage("acquired lock on [resource1]", fb1);
       });
@@ -136,7 +137,6 @@ public class LockStepWithRestartTest extends LockStepTestBase {
     sessions.then(
       j -> {
         WorkflowJob p = j.jenkins.getItemByFullName("p", WorkflowJob.class);
-        FreeStyleProject f = j.jenkins.getItemByFullName("f", FreeStyleProject.class);
         WorkflowRun b1 = p.getBuildByNumber(1);
 
         LockableResourcesManager manager = LockableResourcesManager.get();

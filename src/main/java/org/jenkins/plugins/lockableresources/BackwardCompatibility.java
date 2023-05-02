@@ -25,6 +25,7 @@ import org.jenkinsci.plugins.workflow.steps.StepContext;
  * @deprecated Migration code for field introduced in 1.8 (since 1.11)
  */
 @Deprecated
+@ExcludeFromJacocoGeneratedReport
 public final class BackwardCompatibility {
   private static final Logger LOG = Logger.getLogger(BackwardCompatibility.class.getName());
 
@@ -32,8 +33,8 @@ public final class BackwardCompatibility {
 
   @Initializer(after = InitMilestone.JOB_LOADED)
   public static void compatibilityMigration() {
-    LOG.log(Level.FINE, "lockable-resource-plugin compatibility migration task run");
     List<LockableResource> resources = LockableResourcesManager.get().getResources();
+    LOG.log(Level.FINE, "lockable-resources-plugin compatibility migration task run for " + resources.size() + " resources");
     for (LockableResource resource : resources) {
       List<StepContext> queuedContexts = resource.getQueuedContexts();
       if (!queuedContexts.isEmpty()) {

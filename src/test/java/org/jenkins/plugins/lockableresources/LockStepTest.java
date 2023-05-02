@@ -14,6 +14,7 @@ import hudson.model.Result;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.logging.Logger;
 import java.util.concurrent.CyclicBarrier;
 import net.sf.json.JSONObject;
 import org.jenkinsci.plugins.workflow.cps.CpsFlowDefinition;
@@ -27,6 +28,8 @@ import org.jvnet.hudson.test.JenkinsRule;
 import org.jvnet.hudson.test.recipes.WithPlugin;
 
 public class LockStepTest extends LockStepTestBase {
+
+  private static final Logger LOGGER = Logger.getLogger(LockStepTest.class.getName());
 
   @Rule public JenkinsRule j = new JenkinsRule();
 
@@ -63,6 +66,27 @@ public class LockStepTest extends LockStepTestBase {
     p.setDefinition(
       new CpsFlowDefinition(
         "lock(label: 'label1', variable: 'var') {\n"
+          + "	echo \"Resource locked: ${env.var}\"\n"
+          + "}\n"
+          + "echo 'Finish'",
+        true));
+    WorkflowRun b1 = p.scheduleBuild2(0).waitForStart();
+    j.waitForCompletion(b1);
+    j.assertBuildStatus(Result.SUCCESS, b1);
+    j.assertLogContains("Lock released on resource [Label: label1]", b1);
+    j.assertLogContains("Resource locked: resource1", b1);
+    isPaused(b1, 1, 0);
+
+    assertNotNull(LockableResourcesManager.get().fromName("resource1"));
+  }
+
+  @Test
+  public void lockRandomWithLabel() throws Exception {
+    LockableResourcesManager.get().createResourceWithLabel("resource1", "label1");
+    WorkflowJob p = j.jenkins.createProject(WorkflowJob.class, "p");
+    p.setDefinition(
+      new CpsFlowDefinition(
+        "lock(label: 'label1', variable: 'var', resourceSelectStrategy: 'random') {\n"
           + "	echo \"Resource locked: ${env.var}\"\n"
           + "}\n"
           + "echo 'Finish'",
@@ -493,46 +517,10 @@ public class LockStepTest extends LockStepTestBase {
     waitAndClear(1, nextRuns);
   }
 
-  @Issue("JENKINS-34433")
-  @Test
-  public void manualUnreserveUnblocksJob() throws Exception {
-    LockableResourcesManager.get().createResource("resource1");
-    JenkinsRule.WebClient wc = j.createWebClient();
-
-    TestHelpers.clickButton(wc, "reserve");
-    LockableResource resource1 = LockableResourcesManager.get().fromName("resource1");
-    assertNotNull(resource1);
-    resource1.setReservedBy("someone");
-    assertEquals("someone", resource1.getReservedBy());
-    assertTrue(resource1.isReserved());
-    assertNull(resource1.getReservedTimestamp());
-
-    JSONObject apiRes = TestHelpers.getResourceFromApi(j, "resource1", false);
-    assertThat(apiRes, hasEntry("reserved", true));
-    assertThat(apiRes, hasEntry("reservedBy", "someone"));
-
-    WorkflowJob p = j.jenkins.createProject(WorkflowJob.class, "p");
-    p.setDefinition(
-      new CpsFlowDefinition(
-        "retry(99) {\n"
-          + "    lock('resource1') {\n"
-          + "        semaphore('wait-inside')\n"
-          + "     }\n"
-          + "}",
-        true));
-
-    WorkflowRun r = p.scheduleBuild2(0).waitForStart();
-    j.waitForMessage("[resource1] is locked, waiting...", r);
-    TestHelpers.clickButton(wc, "unreserve");
-    SemaphoreStep.waitForStart("wait-inside/1", r);
-    SemaphoreStep.success("wait-inside/1", null);
-    j.assertBuildStatusSuccess(j.waitForCompletion(r));
-  }
-
   private void waitAndClear(int semaphoreIndex, List<WorkflowRun> nextRuns) throws Exception {
     WorkflowRun toClear = nextRuns.get(0);
 
-    System.err.println("Waiting for semaphore to start for " + toClear.getNumber());
+    LOGGER.info("Waiting for semaphore to start for " + toClear.getNumber());
     SemaphoreStep.waitForStart("wait-inside-2/" + semaphoreIndex, toClear);
 
     List<WorkflowRun> remainingRuns = new ArrayList<>();
@@ -541,13 +529,13 @@ public class LockStepTest extends LockStepTestBase {
       remainingRuns.addAll(nextRuns.subList(1, nextRuns.size()));
 
       for (WorkflowRun r : remainingRuns) {
-        System.err.println("Verifying no semaphore yet for " + r.getNumber());
+        LOGGER.info("Verifying no semaphore yet for " + r.getNumber());
         j.assertLogNotContains("Entering semaphore now", r);
       }
     }
 
     SemaphoreStep.success("wait-inside-2/" + semaphoreIndex, null);
-    System.err.println("Waiting for " + toClear.getNumber() + " to complete");
+    LOGGER.info("Waiting for " + toClear.getNumber() + " to complete");
     j.assertBuildStatusSuccess(j.waitForCompletion(toClear));
 
     if (!remainingRuns.isEmpty()) {
@@ -579,7 +567,7 @@ public class LockStepTest extends LockStepTestBase {
               barrier.await();
               p.scheduleBuild2(0).waitForStart();
             } catch (Exception e) {
-              System.err.println("Failed to start pipeline job");
+              LOGGER.info("Failed to start pipeline job");
             }
           });
       thread.start();
@@ -851,25 +839,44 @@ public class LockStepTest extends LockStepTestBase {
 
   @Test
   //@Issue("JENKINS-XXXXX")
-  public void multipleLocksFillVariablesWithProperties() throws Exception {
-    LockableResourcesManager.get().createResourceWithLabelAndProperties("resource1", "label1", ImmutableMap.of("MYKEY", "MYVAL1"));
-    LockableResourcesManager.get().createResourceWithLabelAndProperties("resource2", "label1", ImmutableMap.of("MYKEY", "MYVAL2"));
+  public void locksInVariablesAreInTheRequestedOrder() throws Exception {
+    List<String> extras = new ArrayList<>();
+    List<String> eachVar = new ArrayList<>();
+    for (int i = 0; i < 100; ++i) {
+      LockableResourcesManager.get().createResource("extra" + i);
+      extras.add("[resource: 'extra" + i + "', quantity:1]");
+      eachVar.add("  echo \"VAR" + (i+1) + " IS ${env.var" + (i+1) + "}\"\n");
+    }
+    LockableResourcesManager.get().createResource("main");
+
     WorkflowJob p = j.jenkins.createProject(WorkflowJob.class, "p");
     p.setDefinition(
       new CpsFlowDefinition(
-        "lock(label: 'label1', variable: 'someVar', quantity: 2) {\n"
-          + "  echo \"$env.someVar0 HAS MYKEY=$env.someVar0_MYKEY\"\n"
-          + "  echo \"$env.someVar1 HAS MYKEY=$env.someVar1_MYKEY\"\n"
-          + "  echo \"$env.someVar2 HAS MYKEY=$env.someVar2_MYKEY\"\n"
+        "lock(variable: 'var', resource: 'main', quantity: 1, extra: ["
+          + String.join(",", extras)
+          + "]) {\n"
+          + "  echo \"VAR IS ${env.var}\"\n"
+          + "  echo \"VAR0 IS ${env.var0}\"\n"
+          + String.join("\n", eachVar)
           + "}",
         true));
     WorkflowRun b1 = p.scheduleBuild2(0).waitForStart();
     j.waitForCompletion(b1);
 
     // Variable should have been filled
-    j.assertLogContains("resource1 HAS MYKEY=MYVAL1", b1);
-    j.assertLogContains("resource2 HAS MYKEY=MYVAL2", b1);
-    j.assertLogContains("null HAS MYKEY=null", b1);
+    j.assertLogContains("VAR IS main,extra0,extra1,extra2,extra3,extra4,extra5,extra6,extra7,extra8,extra9,extra10,extra11,"
+      + "extra12,extra13,extra14,extra15,extra16,extra17,extra18,extra19,extra20,extra21,extra22,extra23,extra24,extra25,extra26,"
+      + "extra27,extra28,extra29,extra30,extra31,extra32,extra33,extra34,extra35,extra36,extra37,extra38,extra39,extra40,extra41,"
+      + "extra42,extra43,extra44,extra45,extra46,extra47,extra48,extra49,extra50,extra51,extra52,extra53,extra54,extra55,extra56,"
+      + "extra57,extra58,extra59,extra60,extra61,extra62,extra63,extra64,extra65,extra66,extra67,extra68,extra69,extra70,extra71,"
+      + "extra72,extra73,extra74,extra75,extra76,extra77,extra78,extra79,extra80,extra81,extra82,extra83,extra84,extra85,extra86,"
+      + "extra87,extra88,extra89,extra90,extra91,extra92,extra93,extra94,extra95,extra96,extra97,extra98,extra99", b1);
+
+    j.assertLogContains("VAR0 IS main", b1);
+    for (int i = 0; i < 100; ++i) {
+      j.assertLogContains("VAR" + (i+1) + " IS extra" + i, b1);
+    }
+
   }
 
   @Test
@@ -1129,7 +1136,7 @@ public class LockStepTest extends LockStepTestBase {
     // this line is noticed in log although it is there AFTER 1-4:
     j.assertLogNotContains("Locked resource cause 2-2", b1);
     j.assertLogNotContains("Locked resource cause 2-3", b1);
-    System.err.println("GOOD: Did not encounter Bug #1 " +
+    LOGGER.info("GOOD: Did not encounter Bug #1 " +
       "(parallel p2 gets the lock on a still-reserved resource)!");
 
     j.waitForMessage("Locked resource cause 1-5", b1);
@@ -1152,14 +1159,14 @@ public class LockStepTest extends LockStepTestBase {
       j.assertLogContains("Locked resource cause 2-2", b1);
     } catch (java.lang.AssertionError t1) {
       sawBug2a = true;
-      System.err.println(
+      LOGGER.info(
         "Bug #2a (Parallel 2 did not start after Parallel 1 finished " +
         "and resource later released) currently tolerated");
-      //System.err.println(t1.toString());
+      //LOGGER.info(t1.toString());
       // throw t1;
     }
     if (!sawBug2a) {
-      System.err.println(
+      LOGGER.info(
         "GOOD: Did not encounter Bug #2a " +
         "(Parallel 2 did not start after Parallel 1 finished " +
         "and resource later released)!");
@@ -1179,31 +1186,31 @@ public class LockStepTest extends LockStepTestBase {
         j.assertLogNotContains(line, b1);
       } catch (java.lang.AssertionError t2) {
         sawBug2b = true;
-        System.err.println("Bug #2b (LRM required un-stucking) currently tolerated: " + line);
-        // System.err.println(t2.toString());
+        LOGGER.info("Bug #2b (LRM required un-stucking) currently tolerated: " + line);
+        // LOGGER.info(t2.toString());
         // throw t2;
       }
     }
     if (!sawBug2b) {
-      System.err.println(
+      LOGGER.info(
         "GOOD: Did not encounter Bug #2b " +
         "(LRM required un-stucking)!");
     }
 
     j.waitForMessage("Locked resource cause 2-2", b1);
     j.assertLogContains("Locked resource cause 1-5", b1);
-    System.err.println("GOOD: lock#2 was taken after we un-reserved lock#1");
+    LOGGER.info("GOOD: lock#2 was taken after we un-reserved lock#1");
 
     j.waitForMessage("Unlocking parallel closure 2", b1);
     j.assertLogNotContains("Locked resource cause 3-2", b1);
-    System.err.println(
+    LOGGER.info(
         "GOOD: lock#3 was NOT taken just after we un-locked closure 2 (keeping lock#2 reserved)");
 
     // After 2-3 we lrm.recycle() the lock so it should
     // go to the next bidder
     j.waitForMessage("Locked resource cause 2-4", b1);
     j.assertLogContains("Locked resource cause 3-2", b1);
-    System.err.println("GOOD: lock#3 was taken just after we recycled lock#2");
+    LOGGER.info("GOOD: lock#3 was taken just after we recycled lock#2");
 
     j.assertLogContains("is locked, waiting...", b1);
 
@@ -1319,7 +1326,7 @@ public class LockStepTest extends LockStepTestBase {
     // this line is noticed in log although it is there AFTER 1-4:
     j.assertLogNotContains("Locked resource cause 2-2", b1);
     j.assertLogNotContains("Locked resource cause 2-3", b1);
-    System.err.println(
+    LOGGER.info(
       "GOOD: Did not encounter Bug #1 " +
       "(parallel p2 gets the lock on a still-reserved resource)!");
 
@@ -1343,14 +1350,14 @@ public class LockStepTest extends LockStepTestBase {
       j.assertLogContains("Locked resource cause 2-2", b1);
     } catch (java.lang.AssertionError t1) {
       sawBug2a = true;
-      System.err.println(
+      LOGGER.info(
         "Bug #2a (Parallel 2 did not start after Parallel 1 finished " +
         "and resource later released) currently tolerated");
-      //System.err.println(t1.toString());
+      //LOGGER.info(t1.toString());
       // throw t1;
     }
     if (!sawBug2a) {
-      System.err.println(
+      LOGGER.info(
         "GOOD: Did not encounter Bug #2a " +
         "(Parallel 2 did not start after Parallel 1 finished " +
         "and resource later released)!");
@@ -1370,13 +1377,13 @@ public class LockStepTest extends LockStepTestBase {
         j.assertLogNotContains(line, b1);
       } catch (java.lang.AssertionError t2) {
         sawBug2b = true;
-        System.err.println("Bug #2b (LRM required un-stucking) currently tolerated: " + line);
-        // System.err.println(t2.toString());
+        LOGGER.info("Bug #2b (LRM required un-stucking) currently tolerated: " + line);
+        // LOGGER.info(t2.toString());
         // throw t2;
       }
     }
     if (!sawBug2b) {
-      System.err.println(
+      LOGGER.info(
         "GOOD: Did not encounter Bug #2b " +
         "(LRM required un-stucking)!");
     }
@@ -1388,8 +1395,8 @@ public class LockStepTest extends LockStepTestBase {
             j.assertLogNotContains("LRM seems stuck; trying to reserve/unreserve", b1);
             j.assertLogNotContains("Secondary lock trick", b1);
         } catch (java.lang.AssertionError t2) {
-            System.err.println("Bug #2b (LRM required un-stucking) currently tolerated");
-            //System.err.println(t2.toString());
+            LOGGER.info("Bug #2b (LRM required un-stucking) currently tolerated");
+            //LOGGER.info(t2.toString());
             // throw t2;
         }
     */
@@ -1412,7 +1419,7 @@ public class LockStepTest extends LockStepTestBase {
     WorkflowRun b1 = p.scheduleBuild2(0).waitForStart();
     j.waitForCompletion(b1);
     j.assertBuildStatus(Result.FAILURE, b1);
-    j.assertLogContains("The label does not exist: invalidLabel", b1);
+    j.assertLogContains("The resource label does not exist: invalidLabel", b1);
     isPaused(b1, 0, 0);
   }
 
@@ -1432,5 +1439,28 @@ public class LockStepTest extends LockStepTestBase {
     j.assertBuildStatus(Result.SUCCESS, b1);
     j.assertLogContains("[resource1] is locked, skipping execution...", b1);
     j.assertLogNotContains("Running body", b1);
+  }
+
+  @Test
+  //@Issue("JENKINS-XXXXX")
+  public void multipleLocksFillVariablesWithProperties() throws Exception {
+    LockableResourcesManager.get().createResourceWithLabelAndProperties("resource1", "label1", ImmutableMap.of("MYKEY", "MYVAL1"));
+    LockableResourcesManager.get().createResourceWithLabelAndProperties("resource2", "label1", ImmutableMap.of("MYKEY", "MYVAL2"));
+    WorkflowJob p = j.jenkins.createProject(WorkflowJob.class, "p");
+    p.setDefinition(
+      new CpsFlowDefinition(
+        "lock(label: 'label1', variable: 'someVar', quantity: 2) {\n"
+          + "  echo \"$env.someVar0 HAS MYKEY=$env.someVar0_MYKEY\"\n"
+          + "  echo \"$env.someVar1 HAS MYKEY=$env.someVar1_MYKEY\"\n"
+          + "  echo \"$env.someVar2 HAS MYKEY=$env.someVar2_MYKEY\"\n"
+          + "}",
+        true));
+    WorkflowRun b1 = p.scheduleBuild2(0).waitForStart();
+    j.waitForCompletion(b1);
+
+    // Variable should have been filled
+    j.assertLogContains("resource1 HAS MYKEY=MYVAL1", b1);
+    j.assertLogContains("resource2 HAS MYKEY=MYVAL2", b1);
+    j.assertLogContains("null HAS MYKEY=null", b1);
   }
 }

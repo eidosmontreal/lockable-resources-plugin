@@ -20,24 +20,28 @@ import hudson.Util;
 import hudson.model.AbstractBuild;
 import hudson.model.AbstractDescribableImpl;
 import hudson.model.Descriptor;
+import hudson.model.Label;
 import hudson.model.Queue;
 import hudson.model.Queue.Item;
 import hudson.model.Queue.Task;
 import hudson.model.Run;
 import hudson.model.User;
+import hudson.model.labels.LabelAtom;
 import hudson.tasks.Mailer.UserProperty;
 import java.io.Serializable;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jenkins.model.Jenkins;
+import org.apache.commons.lang3.StringUtils;
 import org.jenkinsci.plugins.scriptsecurity.sandbox.groovy.SecureGroovyScript;
 import org.jenkinsci.plugins.workflow.steps.StepContext;
 import org.kohsuke.accmod.Restricted;
@@ -58,7 +62,10 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
 
   private final String name;
   private String description = "";
-  private String labels = "";
+  /** @deprecated use labelsAsList instead due performance.
+   */
+  @Deprecated private transient String labels = null;
+  private List<String> labelsAsList = new ArrayList<>();
   private String reservedBy = null;
   private Date reservedTimestamp = null;
   private String note = "";
@@ -92,6 +99,10 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
   private String buildExternalizableId = null;
   private long queuingStarted = 0;
 
+  private static final long serialVersionUID = 1L;
+
+  private transient boolean isNode = false;
+
   /**
    * Was used within the initial implementation of Pipeline functionality using {@link LockStep},
    * but became deprecated once several resources could be locked at once. See queuedContexts in
@@ -103,40 +114,55 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
 
   /** @deprecated Use single-argument constructor instead (since 1.8) */
   @Deprecated
+  @ExcludeFromJacocoGeneratedReport
   public LockableResource(String name, String description, String labels, String reservedBy, String note) {
+    // todo throw exception, when the name is empty
+    // todo check if the name contains only valid characters (no spaces, new lines ...)
     this.name = name;
-    this.description = description;
-    this.labels = labels;
-    this.reservedBy = Util.fixEmptyAndTrim(reservedBy);
-    this.note = note;
+    this.setDescription(description);
+    this.setLabels(labels);
+    this.setReservedBy(reservedBy);
+    this.setNote(note);
   }
 
   @DataBoundConstructor
   public LockableResource(String name) {
-    this.name = name;
+    this.name = Util.fixNull(name);
+    // todo throw exception, when the name is empty
+    // todo check if the name contains only valid characters (no spaces, new lines ...)
   }
 
   protected Object readResolve() {
     if (queuedContexts == null) { // this field was added after the initial version if this class
       queuedContexts = new ArrayList<>();
     }
+    this.repairLabels();
     return this;
+  }
+
+  private void repairLabels() {
+    if (this.labels == null) {
+      return;
+    }
+
+    LOGGER.fine("Repair labels for resource " + this);
+    this.setLabels(this.labels);
+    this.labels = null;
   }
 
   /** @deprecated Replaced with LockableResourcesManager.queuedContexts (since 1.11) */
   @Deprecated
+  @ExcludeFromJacocoGeneratedReport
   public List<StepContext> getQueuedContexts() {
     return this.queuedContexts;
   }
 
-  @DataBoundSetter
-  public void setDescription(String description) {
-    this.description = description;
+  public boolean isNodeResource() {
+    return isNode;
   }
 
-  @DataBoundSetter
-  public void setLabels(String labels) {
-    this.labels = labels;
+  public void setNodeResource(boolean b) {
+    isNode = b;
   }
 
   @Exported
@@ -149,9 +175,9 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
     return description;
   }
 
-  @Exported
-  public String getLabels() {
-    return labels;
+  @DataBoundSetter
+  public void setDescription(String description) {
+    this.description = Util.fixNull(description);
   }
 
   @Exported
@@ -161,7 +187,7 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
 
   @DataBoundSetter
   public void setNote(String note) {
-    this.note = note;
+    this.note = Util.fixNull(note);
   }
 
   @DataBoundSetter
@@ -174,6 +200,86 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
     return ephemeral;
   }
 
+  /** Use getLabelsAsList instead
+   * todo This function is marked as deprecated but it is still used in tests ans
+   * jelly (config) files.
+  */
+  @Deprecated
+  @Exported
+  public String getLabels() {
+    if (this.labelsAsList == null) {
+      return "";
+    }
+    return String.join(" ", this.labelsAsList);
+  }
+
+  /** @deprecated no equivalent at the time.
+   * todo It shall be created new one function selLabelsAsList() and use that one.
+   * But it must be checked and changed all config.jelly files and
+   * this might takes more time as expected.
+   * That the reason why a deprecated function/property is still data-bound-setter
+   */
+  // @Deprecated can not be used, because of JCaC
+  @DataBoundSetter
+  public void setLabels(String labels) {
+    // todo use label parser from Jenkins.Label to allow the same syntax
+    this.labelsAsList = new ArrayList<>();
+    for(String label : labels.split("\\s+")) {
+      if (label == null || label.isEmpty()) {
+        continue;
+      }
+      this.labelsAsList.add(label);
+    }
+  }
+
+  /**
+   * Get labels of this resource
+   * @return List of assigned labels.
+   */
+  @Exported
+  public List<String> getLabelsAsList() {
+    return this.labelsAsList;
+  }
+
+  /**
+   * Checks if the resource has label *labelToFind*
+   * @param labelToFind Label to find.
+   * @return {@code true} if this resource contains the label.
+   */
+  @Exported
+  public boolean hasLabel(String labelToFind) {
+    return this.labelsContain(labelToFind);
+  }
+
+  //----------------------------------------------------------------------------
+  public boolean isValidLabel(String candidate, Map<String, Object> params) {
+    if (candidate == null || candidate.isEmpty()) {
+      return false;
+    }
+
+    if (labelsContain(candidate)) {
+      return true;
+    }
+
+    final Label labelExpression = Label.parseExpression(candidate);
+    Set<LabelAtom> atomLabels = new HashSet<>();
+    for(String label : this.getLabelsAsList()) {
+      atomLabels.add(new LabelAtom(label));
+    }
+
+    return labelExpression.matches(atomLabels);
+  }
+
+  //----------------------------------------------------------------------------
+  /**
+   * Checks if the resource contain label *candidate*.
+   * @param candidate Labels to find.
+   * @return {@code true} if resource contains label *candidate*
+   */
+  private boolean labelsContain(String candidate) {
+    return this.getLabelsAsList().contains(candidate);
+  }
+
   @Exported
   public List<LockableResourceProperty> getProperties() {
     return properties;
@@ -182,18 +288,6 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
   @DataBoundSetter
   public void setProperties(List<LockableResourceProperty> properties) {
     this.properties = (properties == null ? new ArrayList<>() : properties);
-  }
-
-  public boolean isValidLabel(String candidate, Map<String, Object> params) {
-    return labelsContain(candidate);
-  }
-
-  private boolean labelsContain(String candidate) {
-    return makeLabelsList().contains(candidate);
-  }
-
-  private List<String> makeLabelsList() {
-    return Arrays.asList(labels.split("\\s+"));
   }
 
   /**
@@ -212,7 +306,7 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
     Binding binding = new Binding(params);
     binding.setVariable("resourceName", name);
     binding.setVariable("resourceDescription", description);
-    binding.setVariable("resourceLabels", makeLabelsList());
+    binding.setVariable("resourceLabels", this.getLabelsAsList());
     binding.setVariable("resourceNote", note);
     try {
       Object result =
@@ -250,9 +344,34 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
     return reservedBy;
   }
 
+  /** Return true when resource is free. False otherwise*/
+  public boolean isFree() {
+    return (!this.isLocked() && !this.isReserved() && !this.isQueued());
+  }
+
   @Exported
   public boolean isReserved() {
     return reservedBy != null;
+  }
+
+  @Restricted(NoExternalUse.class)
+  @CheckForNull
+  public static String getUserName() {
+    User current = User.current();
+    if (current != null) {
+      return current.getFullName();
+    } else {
+      return null;
+    }
+  }
+
+  /**
+   * Function check if the resources is reserved by currently logged user
+   * @return true when reserved by current user, false otherwise.
+   */
+  @Restricted(NoExternalUse.class) // called by jelly
+  public boolean isReservedByCurrentUser() {
+    return (this.reservedBy != null && StringUtils.equals(getUserName(), this.reservedBy));
   }
 
   @Exported
@@ -317,16 +436,6 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
       build = Run.fromExternalizableId(buildExternalizableId);
     }
     return build;
-  }
-
-  /**
-   * @see WithBridgeMethods
-   * @deprecated Return value of {@link #getBuild()} was widened from AbstractBuild to Run (since
-   *     1.8)
-   */
-  @Deprecated
-  private Object getAbstractBuild(final Run<?, ?> owner, final Class<?> targetClass) {
-    return owner instanceof AbstractBuild ? (AbstractBuild<?, ?>) owner : null;
   }
 
   @Exported
@@ -472,9 +581,7 @@ public class LockableResource extends AbstractDescribableImpl<LockableResource>
     @NonNull
     @Override
     public String getDisplayName() {
-      return "Resource";
+      return Messages.LockableResource_displayName();
     }
   }
-
-  private static final long serialVersionUID = 1L;
 }

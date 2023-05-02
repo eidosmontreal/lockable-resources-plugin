@@ -8,197 +8,68 @@
 
   See the "LICENSE.txt" file for more information.
  -->
-<j:jelly xmlns:j="jelly:core" xmlns:l="/lib/layout" xmlns:f="/lib/form" xmlns:i="jelly:fmt">
+<j:jelly
+  xmlns:j="jelly:core"
+  xmlns:l="/lib/layout"
+  xmlns:f="/lib/form"
+  xmlns:i="jelly:fmt"
+  xmlns:st="jelly:stapler"
+  xmlns:t="/lib/hudson"
+>
   <l:layout title="${it.displayName}" type="one-column">
-    <script type="text/javascript"
-      src="${resURL}/plugin/lockable-resources/js/lockable-resources.js"/>
-    <l:main-panel>
-      <h1>${%Lockable Resources}</h1>
-      <table class="pane" style="width: auto;">
-        <thead>
-          <tr>
-            <th class="pane-header" style="text-align:left">${%Resource}</th>
-            <th class="pane-header" style="text-align:left">${%Status}</th>
-            <th class="pane-header" style="text-align:left">${%Labels}</th>
-            <th class="pane-header" style="text-align:left">${%Properties}</th>
-            <th class="pane-header" style="text-align:left">${%Ephemeral}</th>
-            <th class="pane-header" style="text-align:left">${%Action}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <j:forEach var="resource" items="${it.resources}" indexVar="i">
-            <script>
-            </script>
-            <tr data-resource-name="${resource.name}">
-              <td class="pane">
-                <strong>${resource.name}</strong><l:copyButton message="${%Resource name copied to clipboard}" text="${resource.name}" tooltip="${%Copy resource name to clipboard}"/>
-                <br/>
-                <em>${resource.description}</em>
-              </td>
-              <j:if test="${resource.locked}">
-                <td class="pane" style="color: red;">
-                  <strong>LOCKED</strong>
-                  by
-                  <a href="${rootURL}/${resource.build.url}">
-                    ${resource.build.fullDisplayName}
-                  </a>
-                  <j:if test="${resource.reservedTimestamp != null}">
-                    <br/>
-                    <em><i:formatDate value="${resource.reservedTimestamp}" type="both" dateStyle="medium" timeStyle="short"/></em>
-                  </j:if>
-                </td>
-                <td class="pane">${resource.labels}</td>
-                <td class="pane">
-                  <j:forEach var="property" items="${resource.properties}" indexVar="i">
-                    <strong>${property.name}</strong>: ${property.value}<br/>
-                  </j:forEach>
-                </td>
-                <td class="pane"><f:checkbox checked="${resource.ephemeral}" readonly="true"/></td>
-                <td class="pane">
-                  <j:if test="${h.hasPermission(it.UNLOCK)}">
-                    <button onClick="resource_action(this, 'unlock');">Unlock</button>
-                  </j:if>
-                  <j:if test="${h.hasPermission(it.STEAL) or h.hasPermission(app.ADMINISTER)}">
-                    <button onClick="resource_action(this, 'steal');">Steal Lock</button>
-                  </j:if>
-                </td>
-              </j:if>
-              <j:if test="${!resource.locked}">
-                <j:if test="${resource.reservedBy != null}">
-                  <td class="pane" style="color: red;">
-                    <strong>RESERVED</strong>
-                    by
-                    <strong>${resource.reservedBy}</strong>
-                    <j:if test="${resource.reservedTimestamp != null}">
-                      <br/>
-                      <em><i:formatDate value="${resource.reservedTimestamp}" type="both" dateStyle="medium" timeStyle="short"/></em>
-                    </j:if>
-                  </td>
-                  <td class="pane">${resource.labels}</td>
-                  <td class="pane">
-                    <j:forEach var="property" items="${resource.properties}" indexVar="i">
-                      <strong>${property.name}</strong>: ${property.value}<br/>
-                    </j:forEach>
-                  </td>
-                  <td class="pane"><f:checkbox checked="${resource.ephemeral}" readonly="true"/></td>
-                  <td class="pane">
-                    <j:if test="${h.hasPermission(it.RESERVE)}">
-                      <j:if
-                        test="${it.UserName == resource.reservedBy or h.hasPermission(app.ADMINISTER)}">
-                        <button onClick="resource_action(this, 'unreserve');">UnReserve</button>
-                      </j:if>
-                      <j:if
-                        test="${it.UserName != null and it.UserName != resource.reservedBy and ( h.hasPermission(it.STEAL) or h.hasPermission(app.ADMINISTER) )}">
-                        <j:choose>
-                          <j:when
-                            test="${resource.reservedBy.contains('#')}">
-                            <br/><button onClick="resource_action(this, 'reassign');">Reassign from a job</button>
-                          </j:when>
-                          <j:otherwise> <!-- TODO: Want to need any rights here vs. for jobs? -->
-                            <br/><button onClick="resource_action(this, 'reassign');">Reassign from a user</button>
-                          </j:otherwise>
-                        </j:choose>
-                      </j:if>
-                    </j:if>
-                  </td>
-                </j:if>
-                <j:if test="${resource.reservedBy == null}">
-                  <j:if test="${resource.queued}">
-                    <td class="pane" style="color: yellow;">
-                      QUEUED by "${resource.queueItemProject} ${resource.queueItemId}"
-                      <j:if test="${resource.reservedTimestamp != null}">
-                        <br/>
-                        <em><i:formatDate value="${resource.reservedTimestamp}" type="both" dateStyle="medium" timeStyle="short"/></em>
-                      </j:if>
-                    </td>
-                    <td class="pane">${resource.labels}</td>
-                    <td class="pane">
-                      <j:forEach var="property" items="${resource.properties}" indexVar="i">
-                        <strong>${property.name}</strong>: ${property.value}<br/>
-                      </j:forEach>
-                    </td>
-                    <td class="pane"><f:checkbox checked="${resource.ephemeral}" readonly="true"/></td>
-                    <td class="pane">
-                      <j:if test="${h.hasPermission(it.UNLOCK)}">
-                        <button onClick="resource_action(this, 'reset');">ResetResource</button>
-                      </j:if>
-                    </td>
-                  </j:if>
-                  <j:if test="${!resource.queued}">
-                    <td class="pane" style="color: green;">
-                      <strong>FREE</strong>
-                    </td>
-                    <td class="pane">${resource.labels}</td>
-                    <td class="pane">
-                      <j:forEach var="property" items="${resource.properties}" indexVar="i">
-                        <strong>${property.name}</strong>: ${property.value}<br/>
-                      </j:forEach>
-                    </td>
-                    <td class="pane"><f:checkbox checked="${resource.ephemeral}" readonly="true"/></td>
-                    <td class="pane">
-                      <j:if test="${h.hasPermission(it.RESERVE) and it.UserName != null}">
-                        <button onClick="resource_action(this, 'reserve');">Reserve</button>
-                      </j:if>
-                    </td>
-                  </j:if>
-                </j:if>
-              </j:if>
-            </tr>
-            <tr>
-              <td class="pane" colspan="5">
-                <div id="note-${resource.name}" style="display: flex; padding-left: 25px; padding-right: 10px;">
-                  <div style="color: darkgray; font-size: small; flex-grow: 1;">
-                    <j:out value="${resource.note !=null ? app.markupFormatter.translate(resource.note) : ''}" />
-                  </div>
+    <l:app-bar title="${%header.resources}">
+      <t:help href="https://github.com/jenkinsci/lockable-resources-plugin#lockable-resources-overview" />
+    </l:app-bar>
 
-                  <l:hasPermission permission="${it.RESERVE}">
-                    <div align="right"><a id="note-link" href="editNote" onclick="return replaceNote(this, '${resource.name}');">
-                      <l:icon class="icon-notepad icon-sm"/>
-                      <j:choose>
-                        <j:when test="${empty(resource.note)}">
-                          ${%Add note}
-                        </j:when>
-                        <j:otherwise>
-                          ${%Edit note}
-                        </j:otherwise>
-                      </j:choose>
-                    </a></div>
-                  </l:hasPermission>
-                </div>
-              </td>
-            </tr>
-          </j:forEach>
-        </tbody>
-      </table>
-      <j:if test="${it.getNumberOfAllLabels() != 0}">
-        <h3>Labels</h3>
-        <table class="pane" style="width: auto;">
-          <tbody>
-            <tr>
-              <td class="pane-header">Label</td>
-              <td class="pane-header">Free resources</td>
-            </tr>
-            <j:forEach var="label" items="${it.getAllLabels()}">
-              <tr>
-                <j:choose>
-                  <j:when test="${it.getFreeResourceAmount(label) == 0}">
-                    <td class="pane" style="color: red;">${label}</td>
-                    <td class="pane" style="color: red;">0</td>
-                  </j:when>
-                  <j:when test="${it.getFreeResourceAmount(label) == 1}">
-                    <td class="pane" style="color: darkorange;">${label}</td>
-                    <td class="pane" style="color: darkorange;">1</td>
-                  </j:when>
-                  <j:otherwise>
-                    <td class="pane" style="color: green;">${label}</td>
-                    <td class="pane" style="color: green;">${it.getFreeResourceAmount(label)}</td>
-                  </j:otherwise>
-                </j:choose>
-              </tr>
-            </j:forEach>
-          </tbody>
-        </table>
-      </j:if>
+    <l:main-panel>
+      <j:choose>
+        <j:when test="${it.resources.size() == 0}">
+          <p>
+            ${%resources.not_configured}<br />
+            <j:if test="${h.hasPermission(app.ADMINISTER)}">
+              ${%resources.configure.here(rootURL + "/configure")}
+            </j:if>
+        </p>
+      </j:when>
+      <j:otherwise>
+        <div class="fluid-container">
+          <!-- Nav tabs -->
+          <ul class="nav nav-tabs" id="lockable-resources-tab" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="resources-tab" data-bs-toggle="tab" data-bs-target="#resources"
+                type="button" role="tab" aria-controls="resources" aria-selected="true">${%tab.resources}</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="labels-tab" data-bs-toggle="tab" data-bs-target="#labels" type="button"
+                role="tab" aria-controls="labels" aria-selected="false">${%tab.labels}</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="queue-tab" data-bs-toggle="tab" data-bs-target="#queue" type="button"
+                role="tab" aria-controls="queue" aria-selected="false">${%tab.queue}</button>
+            </li>
+            <!-- more tabs like logs can be added here -->
+          </ul>
+          <!-- Tab panes -->
+          <div class="tab-content">
+            <div class="tab-pane active jenkins-!-margin-top-1" id="resources" role="tabpanel" aria-labelledby="resources-tab">
+              <st:include page="tableResources/table"/>
+            </div>
+          </div>
+          <div class="tab-content">
+            <div class="tab-pane jenkins-!-margin-top-1" id="labels" role="tabpanel" aria-labelledby="labels-tab">
+              <st:include page="tableLabels/table"/>
+            </div>
+          </div>
+          <div class="tab-content">
+            <div class="tab-pane jenkins-!-margin-top-1" id="queue" role="tabpanel" aria-labelledby="queue-tab">
+              <st:include page="tableQueue/table"/>
+            </div>
+          </div>
+        </div>
+
+        <script type="text/javascript" src="${resURL}/plugin/data-tables-api/js/table.js"/>
+        </j:otherwise>
+      </j:choose>
     </l:main-panel>
   </l:layout>
 </j:jelly>
